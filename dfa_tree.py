@@ -1,6 +1,32 @@
+# from abc import ABC, abstractmethod
+# import json
 import graphviz
 import pandas as pd
 import matplotlib.pyplot as plt
+
+
+# class BaseState(ABC):
+    
+#     @abstractmethod
+#     def to_dict(self):
+#         pass
+
+
+# def set_default(obj):
+#     if isinstance(obj, set):
+#         return list(obj)
+#     raise TypeError
+
+# class SetEncoder(json.JSONEncoder): 
+#     def default(self, obj): 
+#         if isinstance(obj, set): 
+#             return list(obj) 
+#         if isinstance(obj, BaseState): 
+#             return obj.to_dict()
+#         return json.JSONEncoder.default(self, obj)
+
+def single_set(s):
+    return next(iter(s))
 
 def update_set_in_dict(_dict, key, value):
     if key in _dict:
@@ -71,10 +97,11 @@ class Node:
 
 class State:
 
-    def __init__(self, name, value, _symbols) -> None:
+    def __init__(self, name, value, _symbols, _final=False) -> None:
         self.name = name
         self.value = value
         self.map = {s: None for s in _symbols}
+        self.final = _final
 
     def __eq__(self, __o: object) -> bool:
         return self.value == __o.value
@@ -82,12 +109,16 @@ class State:
     def __ne__(self, __o: object) -> bool:
         return self.value != __o.value
 
-    def __repr__(self) -> str:
-        return str({
+    def to_dict(self):
+        return {
             'name': self.name,
             'value': self.value,
+            'final': self.final,
             'map': self.map,
-        })
+        }
+
+    def __repr__(self) -> str:
+        return str(self.to_dict())
 
 def symbols(regex):
     res = set()
@@ -307,9 +338,12 @@ def build_followpos_table(root):
 def build_dfa(regex):
     _symbols = symbols(regex)
     root, locs = build_syntax_tree(regex)
+    final_loc = single_set(root.lastpos)
     followpos_table = build_followpos_table(root)
 
-    states = [State('S0', root.firstpos, _symbols)]
+    states = [State(name='S0', value=root.firstpos, 
+                    _symbols=_symbols, 
+                    _final=final_loc in root.firstpos)]
     resolved_states = 0
 
     while resolved_states != len(states):
@@ -320,7 +354,10 @@ def build_dfa(regex):
                 if loc in state.value:
                     new_set.update(followpos_table[loc])
 
-            new_state = State(f'S{len(states)}', new_set, _symbols)
+            new_state = State(name=f'S{len(states)}', 
+                            value=new_set, 
+                            _symbols=_symbols, 
+                            _final=final_loc in new_set)
             old_state = None
             for s in states:
                 if new_state == s:
@@ -330,7 +367,7 @@ def build_dfa(regex):
             if not old_state:
                 states.append(new_state)
 
-            state.map[symbol] = old_state or new_set
+            state.map[symbol] = old_state or new_state
 
         resolved_states += 1
 
@@ -362,6 +399,9 @@ regex = 'a*((b)+|a)+'
 
 dfa = build_dfa(regex)
 print(dfa)
+
+# with open('output.json', 'w') as file:
+#     json.dump([state.to_dict() for state in dfa], file, cls=SetEncoder, indent=2)
 
 exit()
 visualize_dfa(dfa)
