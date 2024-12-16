@@ -2,6 +2,12 @@ import graphviz
 import pandas as pd
 import matplotlib.pyplot as plt
 
+def update_set_in_dict(_dict, key, value):
+    if key in _dict:
+        _dict[key].update(value)
+    else:
+        _dict[key] = value.copy()
+
 class Node:
     def __init__(self, value):
         self.value = value
@@ -41,16 +47,17 @@ class Node:
             self.lastpos = self.right.lastpos if not self.right.nullable else self.left.lastpos | self.right.lastpos
 
     @staticmethod
-    def numbering_nodes(root, last_num):
+    def numbering_nodes(root, last_num, locs=dict()):
         if root.left and root.right:
-            last_num = Node.numbering_nodes(root.right, last_num)
-            return Node.numbering_nodes(root.left, last_num) 
+            last_num, locs = Node.numbering_nodes(root.right, last_num, locs)
+            return Node.numbering_nodes(root.left, last_num, locs) 
         if root.left:
-            return Node.numbering_nodes(root.left, last_num)
+            return Node.numbering_nodes(root.left, last_num, locs)
 
         root.firstpos = {last_num}
         root.lastpos = {last_num}
-        return last_num - 1
+        update_set_in_dict(locs, root.value, {last_num})
+        return last_num - 1, locs
 
     def __repr__(self) -> str:
         return str({
@@ -61,6 +68,33 @@ class Node:
             'left': self.left,
             'right': self.right,
         })
+
+class State:
+
+    def __init__(self, name, value, _symbols) -> None:
+        self.name = name
+        self.value = value
+        self.map = {s: None for s in _symbols}
+
+    def __eq__(self, __o: object) -> bool:
+        return self.value == __o.value
+
+    def __ne__(self, __o: object) -> bool:
+        return self.value != __o.value
+
+    def __repr__(self) -> str:
+        return str({
+            'name': self.name,
+            'value': self.value,
+            'map': self.map,
+        })
+
+def symbols(regex):
+    res = set()
+    for char in regex:
+        if char not in '()|.*+':
+            res.add(char)
+    return res
 
 def parse_ending(regex):
     return regex.replace('#', '') + '#'
@@ -238,24 +272,24 @@ def parse_regex(regex):
     root.left = recursive_parse_reg(regex[:-2])
     return root
 
-
-def followpos(node, followpos_table):
-    if node.value == '.':
-        for i in node.left.lastpos:
-            followpos_table[i].update(node.right.firstpos)
-    elif node.value in '*+':
-        for i in node.lastpos:
-            followpos_table[i].update(node.firstpos)
-
 def build_syntax_tree(regex):
     regex = parse_ending(regex)
     regex = parse_concats(regex)
     regex = decompose_plus(regex)
     _last_num = last_num(regex)
     root = parse_regex(regex)
-    Node.numbering_nodes(root, _last_num)
+    _, locs = Node.numbering_nodes(root, _last_num)
     root.compute_nullable_firstpos_lastpos()
-    return root
+    return root, locs
+
+def followpos(node, followpos_table):
+    if node.value == '.':
+        for i in node.left.lastpos:
+            update_set_in_dict(followpos_table, i, node.right.firstpos)
+    elif node.value == '*':
+        for i in node.lastpos:
+            update_set_in_dict(followpos_table, i, node.firstpos)
+
 
 def build_followpos_table(root):
     followpos_table = {node: set() for node in root.firstpos | root.lastpos}
@@ -268,6 +302,39 @@ def build_followpos_table(root):
             nodes.append(node.right)
         followpos(node, followpos_table)
     return followpos_table
+
+
+def build_dfa(regex):
+    _symbols = symbols(regex)
+    root, locs = build_syntax_tree(regex)
+    followpos_table = build_followpos_table(root)
+
+    states = [State('S0', root.firstpos, _symbols)]
+    resolved_states = 0
+
+    while resolved_states != len(states):
+        state = states[resolved_states]
+        for symbol in _symbols:
+            new_set = set()
+            for loc in locs[symbol]:
+                if loc in state.value:
+                    new_set.update(followpos_table[loc])
+
+            new_state = State(f'S{len(states)}', new_set, _symbols)
+            old_state = None
+            for s in states:
+                if new_state == s:
+                    old_state = s
+                    break
+            
+            if not old_state:
+                states.append(new_state)
+
+            state.map[symbol] = old_state or new_set
+
+        resolved_states += 1
+
+    return states
 
 def visualize_dfa(dfa):
     dot = graphviz.Digraph()
@@ -292,12 +359,11 @@ def plot_graphs_and_tables(dfa):
 # regex = 'ab|c+|(ab|cd)+'
 regex = 'a*((b)+|a)+'
 # regex = 'a*((bc)+|(c|d)*|aa)+'
-syntax_tree = build_syntax_tree(regex)
-print(syntax_tree)
+
+dfa = build_dfa(regex)
+print(dfa)
+
 exit()
-followpos_table = build_followpos_table(syntax_tree)
-nfa = {}  # Convert syntax tree to NFA
-dfa = nfa_to_dfa(nfa)
 visualize_dfa(dfa)
 plot_graphs_and_tables(dfa)
 
