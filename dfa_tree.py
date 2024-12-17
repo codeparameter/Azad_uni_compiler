@@ -1,29 +1,13 @@
-# from abc import ABC, abstractmethod
-# import json
+import json
 import graphviz
 import pandas as pd
 import matplotlib.pyplot as plt
 
 
-# class BaseState(ABC):
-    
-#     @abstractmethod
-#     def to_dict(self):
-#         pass
-
-
-# def set_default(obj):
-#     if isinstance(obj, set):
-#         return list(obj)
-#     raise TypeError
-
-# class SetEncoder(json.JSONEncoder): 
-#     def default(self, obj): 
-#         if isinstance(obj, set): 
-#             return list(obj) 
-#         if isinstance(obj, BaseState): 
-#             return obj.to_dict()
-#         return json.JSONEncoder.default(self, obj)
+def set_default(obj):
+    if isinstance(obj, set):
+        return list(obj)
+    raise TypeError
 
 def single_set(s):
     return next(iter(s))
@@ -97,10 +81,11 @@ class Node:
 
 class State:
 
-    def __init__(self, name, value, _symbols, _final=False) -> None:
+    def __init__(self, name, value, _symbols, _start=False, _final=False) -> None:
         self.name = name
         self.value = value
         self.map = {s: None for s in _symbols}
+        self.start = _start
         self.final = _final
 
     def __eq__(self, __o: object) -> bool:
@@ -113,12 +98,17 @@ class State:
         return {
             'name': self.name,
             'value': self.value,
+            'start': self.start,
             'final': self.final,
-            'map': self.map,
+            'map': {k: v.name if v else v for k, v in self.map.items()},
         }
 
     def __repr__(self) -> str:
         return str(self.to_dict())
+
+    @staticmethod
+    def transition_table(states):
+        return [state.to_dict() for state in states]
 
 def symbols(regex):
     res = set()
@@ -342,7 +332,8 @@ def build_dfa(regex):
     followpos_table = build_followpos_table(root)
 
     states = [State(name='S0', value=root.firstpos, 
-                    _symbols=_symbols, 
+                    _symbols=_symbols,
+                    _start=True,
                     _final=final_loc in root.firstpos)]
     resolved_states = 0
 
@@ -388,17 +379,17 @@ def plot_graphs_and_tables(dfa):
     plt.show()
 
 # Example usage
-# regex = 'ab'
+regex = 'ab'
 # regex = 'a*b'
 # regex = 'a*b*'
 # regex = 'a|b|c'
 # regex = 'a|b+'
 # regex = 'ab|c+|(ab|cd)+'
-regex = 'a*((b)+|a)+'
+# regex = 'a*((b)+|a)+'
 # regex = 'a*((bc)+|(c|d)*|aa)+'
 
-dfa = build_dfa(regex)
-print(dfa)
+states = build_dfa(regex)
+print(json.dumps(State.transition_table(states), indent=2, default=set_default))
 
 # with open('output.json', 'w') as file:
 #     json.dump([state.to_dict() for state in dfa], file, cls=SetEncoder, indent=2)
