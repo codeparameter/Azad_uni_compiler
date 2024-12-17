@@ -379,13 +379,13 @@ def plot_graphs_and_tables(dfa):
     plt.show()
 
 # Example usage
-regex = 'ab'
+# regex = 'ab'
 # regex = 'a*b'
 # regex = 'a*b*'
 # regex = 'a|b|c'
 # regex = 'a|b+'
 # regex = 'ab|c+|(ab|cd)+'
-# regex = 'a*((b)+|a)+'
+regex = 'a*((b)+|a)+'
 # regex = 'a*((bc)+|(c|d)*|aa)+'
 
 states = build_dfa(regex)
