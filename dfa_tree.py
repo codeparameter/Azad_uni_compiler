@@ -1,7 +1,5 @@
 import json
-import graphviz
-import pandas as pd
-import matplotlib.pyplot as plt
+from graphviz import Digraph
 
 
 def set_default(obj):
@@ -69,15 +67,16 @@ class Node:
         update_set_in_dict(locs, root.value, {last_num})
         return last_num - 1, locs
 
-    def __repr__(self) -> str:
-        return str({
-            'value': self.value,
-            'nullable': self.nullable,
-            'firstpos': self.firstpos,
-            'lastpos': self.lastpos,
-            'left': self.left,
-            'right': self.right,
-        })
+    def __str__(self) -> str:
+        return f'{self.firstpos} {self.value} { "V" if self.nullable else "F"} {self.lastpos}'
+        # return str({
+        #     'value': self.value,
+        #     'nullable': self.nullable,
+        #     'firstpos': self.firstpos,
+        #     'lastpos': self.lastpos,
+        #     # 'left': self.left,
+        #     # 'right': self.right,
+        # })
 
 class State:
 
@@ -103,8 +102,9 @@ class State:
             'map': {k: v.name if v else v for k, v in self.map.items()},
         }
 
-    def __repr__(self) -> str:
-        return str(self.to_dict())
+    def __str__(self) -> str:
+        return f'{"->" if self.start else ""}{"*" if self.final else ""}{self.name}'
+        # return str(self.to_dict())
 
     @staticmethod
     def transition_table(states):
@@ -297,6 +297,7 @@ def build_syntax_tree(regex):
     regex = parse_ending(regex)
     regex = parse_concats(regex)
     regex = decompose_plus(regex)
+    print(regex)
     _last_num = last_num(regex)
     root = parse_regex(regex)
     _, locs = Node.numbering_nodes(root, _last_num)
@@ -325,11 +326,50 @@ def build_followpos_table(root):
     return followpos_table
 
 
+def plot_tree(node, graph=None):
+    if graph is None:
+        graph = Digraph()
+        graph.node(str(node), str(node))
+    
+    if node.left:
+        graph.node(str(node.left), str(node.left))
+        graph.edge(str(node), str(node.left))
+        plot_tree(node.left, graph)
+    
+    if node.right:
+        graph.node(str(node.right), str(node.right))
+        graph.edge(str(node), str(node.right))
+        plot_tree(node.right, graph)
+
+    return graph
+
+def plot_dfa(states, graph=None):
+    for state in states:
+        if graph is None:
+            graph = Digraph()
+            graph.node(str(state), str(state))
+
+        for symb, s in state.map.items():
+            if s:
+                graph.node(str(s), str(s))
+                graph.edge(str(state), str(s), symb)
+
+    return graph
+
+
 def build_dfa(regex):
     _symbols = symbols(regex)
     root, locs = build_syntax_tree(regex)
     final_loc = single_set(root.lastpos)
+
+    graph = plot_tree(root)
+    graph.render('tree', format='png', view=True)
+
     followpos_table = build_followpos_table(root)
+
+    print()
+    print('FollowPos Table')
+    print(json.dumps(followpos_table, indent=2, default=set_default))
 
     states = [State(name='S0', value=root.firstpos, 
                     _symbols=_symbols,
@@ -345,38 +385,37 @@ def build_dfa(regex):
                 if loc in state.value:
                     new_set.update(followpos_table[loc])
 
+            if not new_set:
+                continue
+
             new_state = State(name=f'S{len(states)}', 
                             value=new_set, 
                             _symbols=_symbols, 
                             _final=final_loc in new_set)
-            old_state = None
-            for s in states:
+            old_state_i = 0
+            should_append = True
+            for i, s in enumerate(states):
                 if new_state == s:
-                    old_state = s
+                    old_state_i += i
+                    should_append = not should_append
                     break
             
-            if not old_state:
+            if should_append:
                 states.append(new_state)
-
-            state.map[symbol] = old_state or new_state
+                state.map[symbol] = new_state
+            else:
+                state.map[symbol] = states[old_state_i]
 
         resolved_states += 1
 
+    print()
+    print('Transition Table')
+    print(json.dumps(State.transition_table(states), indent=2, default=set_default))
+
+    graph = plot_dfa(states)
+    graph.render('dfa', format='png', view=True)
+
     return states
-
-def visualize_dfa(dfa):
-    dot = graphviz.Digraph()
-    for state in dfa:
-        dot.node(state)
-        for symbol, next_state in dfa[state].items():
-            dot.edge(state, next_state, label=symbol)
-    dot.render('dfa', format='png')
-
-def plot_graphs_and_tables(dfa):
-    df = pd.DataFrame(dfa).fillna('')
-    print(df)
-    df.plot(kind='bar')
-    plt.show()
 
 # Example usage
 # regex = 'ab'
@@ -385,22 +424,8 @@ def plot_graphs_and_tables(dfa):
 # regex = 'a|b|c'
 # regex = 'a|b+'
 # regex = 'ab|c+|(ab|cd)+'
-regex = 'a*((b)+|a)+'
-# regex = 'a*((bc)+|(c|d)*|aa)+'
+# regex = 'a*((b)+|a)+'
+# regex = '(a*|b+)'
+regex = 'a*((bc)+|(c|d)*|aa)+'
 
 states = build_dfa(regex)
-print(json.dumps(State.transition_table(states), indent=2, default=set_default))
-
-# with open('output.json', 'w') as file:
-#     json.dump([state.to_dict() for state in dfa], file, cls=SetEncoder, indent=2)
-
-exit()
-visualize_dfa(dfa)
-plot_graphs_and_tables(dfa)
-
-
-# To calculate FollowPos, you need to traverse the syntax tree and apply the following rules:
-
-# Concatenation (A B): If a position i is in LastPos(A), then all positions in FirstPos(B) are in FollowPos(i).
-
-# Kleene Star (A)*: If a position i is in LastPos(A), then all positions in FirstPos(A) are in FollowPos(i).
